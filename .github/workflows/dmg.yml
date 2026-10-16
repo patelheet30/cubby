@@ -1,0 +1,41 @@
+name: Build DMG
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  dmg:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build Cubby.app
+        run: ./build.sh # no signing identity on the runner, so it signs ad hoc
+
+      - name: Self-test
+        run: build/Cubby.app/Contents/MacOS/Cubby --self-test
+
+      - name: Package DMG
+        run: |
+          VERSION=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' Resources/Info.plist)
+          mkdir -p dmg
+          cp -R build/Cubby.app dmg/
+          ln -s /Applications dmg/Applications
+          hdiutil create -volname Cubby -srcfolder dmg -ov -format UDZO "Cubby-$VERSION.dmg"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Cubby-dmg
+          path: Cubby-*.dmg
+
+      - name: Attach to GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: gh release create "$GITHUB_REF_NAME" Cubby-*.dmg --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}
