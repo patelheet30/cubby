@@ -151,6 +151,16 @@ enum SelfTest {
         let thumb = p.thumb.flatMap { NSBitmapImageRep(data: $0) }
         check(p.w == 800 && p.h == 400 && thumb?.pixelsWide == 800, "image preview size + thumb (no upscaling)")
 
+        // A single image file (what screenshot apps put on the clipboard) is an image clip, previewed from disk.
+        let pngURL = FileManager.default.temporaryDirectory.appending(path: "cubby-selftest-\(UUID().uuidString).png")
+        try? png.write(to: pngURL)
+        defer { try? FileManager.default.removeItem(at: pngURL) }
+        let shot = item(("public.file-url", Data(pngURL.absoluteString.utf8)))
+        let sp = Classifier.preview(Classifier.analyze(shot), shot).0
+        check(kind(shot) == .image && sp.w == 800 && sp.thumb != nil && sp.paths == [pngURL.path], "image file is an image clip")
+        let two = [shot[0], PayloadItem(types: ["public.file-url"], data: ["public.file-url": Data("file:///Applications/Safari.app/".utf8)])]
+        check(kind(two) == .file, "several files stay a file clip")
+
         let file = item(("public.file-url", Data("file:///Applications/Safari.app/".utf8)))
         check(Classifier.preview(Classifier.analyze(file), file).0.paths == ["/Applications/Safari.app"], "file paths")
         let link = item(("public.utf8-plain-text", Data("https://x.org".utf8)), ("public.url-name", Data("X".utf8)))

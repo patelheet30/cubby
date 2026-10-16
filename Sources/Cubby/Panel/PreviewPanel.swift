@@ -96,7 +96,8 @@ final class PreviewPanel {
             footer = [n(p.textLength ?? s.count, "character"), n(p.words ?? 0, "word"), n(p.lines ?? 0, "line")].joined(separator: " · ")
             v = sv
         case .image:
-            let img = payload.flatMap(Classifier.imageData).flatMap(NSImage.init(data:)) ?? c.image
+            let img = payload.flatMap(Classifier.imageData).flatMap(NSImage.init(data:))
+                ?? c.paths.first.flatMap(NSImage.init(contentsOfFile:)) ?? c.image
             let iv = NSImageView(image: img ?? NSImage())
             iv.imageScaling = .scaleProportionallyUpOrDown
             let px = c.pixelSize ?? img?.size ?? CGSize(width: 400, height: 300)

@@ -273,15 +273,19 @@ final class Store: @unchecked Sendable {
         }
     }
 
-    /// Re-renders image-clip thumbnails from their stored payload (after `Classifier.thumbMax` grows).
-    func regenerateImageThumbnails() {
+    /// Re-runs the classifier on image and file clips (after the thumbnail size or the image-file rule changes).
+    func reclassifyImages() {
         var ids: [Int64] = []
-        locked { db.run("SELECT id FROM item WHERE kind = ? AND deleted_at IS NULL", [ItemKind.image.rawValue]) { ids.append($0.int(0)) } }
-        for id in ids {
-            guard let data = payload(id).flatMap(Classifier.imageData), let src = CGImageSourceCreateWithData(data as CFData, nil),
-                  let thumb = Classifier.thumbnail(src) else { continue }
-            updatePreview(id) { $0.thumb = thumb }
+        locked {
+            db.run("SELECT id FROM item WHERE kind IN (?, ?) AND deleted_at IS NULL", [ItemKind.image.rawValue, ItemKind.file.rawValue]) { ids.append($0.int(0)) }
         }
+        for id in ids {
+            guard let items = payload(id) else { continue }
+            let r = Classifier.analyze(items)
+            guard r.kind == .image, let data = try? PropertyListEncoder.binary.encode(Classifier.preview(r, items).0) else { continue }
+            locked { _ = db.run("UPDATE item SET kind = ?, preview = ? WHERE id = ?", [r.kind.rawValue, data, id]) }
+        }
+        notify()
     }
 
     /// Late preview data (link title/image, file thumbnail).

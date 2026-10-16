@@ -19,7 +19,11 @@ enum Classifier {
     /// Cheap part: decides the kind and checksum, so duplicates can be bumped before any thumbnail work.
     static func analyze(_ items: [PayloadItem]) -> Result {
         let fileURLs = items.compactMap { $0.data["public.file-url"].flatMap { String(data: $0, encoding: .utf8) } }
-        if !fileURLs.isEmpty { return Result(kind: .file, checksum: md5(Data(fileURLs.joined(separator: "\n").utf8)), string: nil) }
+        if !fileURLs.isEmpty {
+            // One image file (a screenshot app's output, a photo from Finder) reads better as a picture than as a file row.
+            let kind: ItemKind = fileURLs.count == 1 && imageFilePath(items) != nil ? .image : .file
+            return Result(kind: kind, checksum: md5(Data(fileURLs.joined(separator: "\n").utf8)), string: nil)
+        }
 
         if let img = imageData(items) { return Result(kind: .image, checksum: md5(img), string: nil) }
 
@@ -59,13 +63,17 @@ enum Classifier {
             p.hex = r.string
             return (p, r.string ?? "")
         case .image:
-            if let data = imageData(items), let src = CGImageSourceCreateWithData(data as CFData, nil) {
+            let path = imageFilePath(items)
+            p.paths = path.map { [$0] }
+            let src = imageData(items).flatMap { CGImageSourceCreateWithData($0 as CFData, nil) }
+                ?? path.flatMap { CGImageSourceCreateWithURL(URL(fileURLWithPath: $0) as CFURL, nil) }
+            if let src {
                 let props = CGImageSourceCopyPropertiesAtIndex(src, 0, nil) as? [CFString: Any]
                 p.w = props?[kCGImagePropertyPixelWidth] as? Int
                 p.h = props?[kCGImagePropertyPixelHeight] as? Int
                 p.thumb = thumbnail(src)
             }
-            return (p, "")
+            return (p, path.map { ($0 as NSString).lastPathComponent } ?? "")
         case .file:
             let paths = items.compactMap { $0.data["public.file-url"].flatMap { String(data: $0, encoding: .utf8) }.flatMap(URL.init(string:))?.path }
             p.paths = paths
@@ -80,6 +88,15 @@ enum Classifier {
     // MARK: helpers
 
     static func md5(_ d: Data) -> String { Insecure.MD5.hash(data: d).map { String(format: "%02x", $0) }.joined() }
+
+    /// The single copied file, when it's an image that exists on disk.
+    static func imageFilePath(_ items: [PayloadItem]) -> String? {
+        let urls = items.compactMap { $0.data["public.file-url"].flatMap { String(data: $0, encoding: .utf8) }.flatMap(URL.init(string:)) }
+        guard urls.count == 1, let url = urls.first, url.isFileURL,
+              UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true,
+              FileManager.default.fileExists(atPath: url.path) else { return nil }
+        return url.path
+    }
 
     static func imageData(_ items: [PayloadItem]) -> Data? {
         for t in imageTypes { if let d = items.first(where: { $0.data[t] != nil })?.data[t] { return d } }

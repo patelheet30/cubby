@@ -21,10 +21,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ClipboardWatcher.shared.start()
         Store.shared.purge() // anything deleted last session is past undo
         housekeeping()
-        if Settings.d.integer(forKey: "thumbnailVersion") < 2 { // sharper image cards (1024 px thumbnails)
+        if Settings.d.integer(forKey: "thumbnailVersion") < 3 { // v2: 1024 px thumbnails, v3: image files are image clips
             DispatchQueue.global(qos: .utility).async {
-                Store.shared.regenerateImageThumbnails()
-                DispatchQueue.main.async { Settings.d.set(2, forKey: "thumbnailVersion") }
+                Store.shared.reclassifyImages()
+                DispatchQueue.main.async { Settings.d.set(3, forKey: "thumbnailVersion") }
             }
         }
         housekeepingTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in self?.housekeeping() }
