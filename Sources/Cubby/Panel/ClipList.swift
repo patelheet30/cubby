@@ -358,7 +358,9 @@ final class CardView: NSView {
         case .image: media.showImage(c.image)
         case .link: media.showLink(image: c.image)
             title.stringValue = c.title ?? (c.text ?? "")
-            body.stringValue = c.text.flatMap { URL(string: $0)?.host() } ?? ""
+            let host = c.text.flatMap { URL(string: $0)?.host() } ?? ""
+            let n = c.preview.trackersRemoved ?? 0
+            body.stringValue = n > 0 ? "\(host) · \(n) tracker\(n == 1 ? "" : "s") removed" : host
         case .color: media.showColor(c.color, hex: c.text ?? "")
         case .file: media.showFile(c.image)
             title.stringValue = (c.paths.first as NSString?)?.lastPathComponent ?? "File"

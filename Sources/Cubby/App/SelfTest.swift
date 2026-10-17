@@ -37,6 +37,7 @@ enum SelfTest {
         migrationTests(check)
         storeTests(check)
         classifierTests(check)
+        linkCleanerTests(check)
 
         print(failures == 0 ? "self-test: all \(checks) passed" : "self-test: \(failures) failed")
         exit(failures == 0 ? 0 : 1)
@@ -154,6 +155,35 @@ enum SelfTest {
     }
 
     private static func uuid(_ store: Store, _ id: Int64) -> String { store.uuid(of: id) ?? "" }
+
+    static func linkCleanerTests(_ check: (Bool, String) -> Void) {
+        let cases: [(String, String?, Int)] = [ // input, cleaned (nil = untouched), trackers removed
+            ("https://example.com/page?utm_source=x&utm_medium=y&id=7", "https://example.com/page?id=7", 2),
+            ("https://example.com/?fbclid=abc", "https://example.com/", 1),
+            ("https://shop.example/p?gclid=1&msclkid=2&color=red#reviews", "https://shop.example/p?color=red#reviews", 2),
+            ("https://www.youtube.com/watch?v=dQw4w9WgXcQ&si=XYZ&pp=abc", "https://www.youtube.com/watch?v=dQw4w9WgXcQ", 2),
+            ("https://youtu.be/dQw4w9WgXcQ?si=XYZ", "https://youtu.be/dQw4w9WgXcQ", 1),
+            ("https://open.spotify.com/track/123?si=abc", "https://open.spotify.com/track/123", 1),
+            ("https://x.com/user/status/1?s=20&t=abc", "https://x.com/user/status/1", 2),
+            ("https://www.instagram.com/p/xyz/?igsh=abc", "https://www.instagram.com/p/xyz/", 1),
+            ("https://www.amazon.co.uk/Some-Long-Name/dp/B0ABCDEFGH/ref=sr_1_1?keywords=x&tag=y", "https://www.amazon.co.uk/dp/B0ABCDEFGH", 3),
+            ("https://www.amazon.com/dp/B0ABCDEFGH", nil, 0),
+            ("https://example.com/search?q=swift&s=2&t=10", nil, 0),          // s/t only track on X
+            ("https://example.com/page?id=7", nil, 0),
+            ("https://example.com/", nil, 0),
+            ("ftp://example.com/?utm_source=x", nil, 0),
+        ]
+        for (input, want, n) in cases {
+            let got = LinkCleaner.clean(input)
+            check(got?.url == want && (got?.removed ?? 0) == n, "clean \(input) → \(got?.url ?? "untouched")")
+        }
+        // A copied link is rewritten in place; text that isn't a lone link is left alone.
+        let copied = item(("public.utf8-plain-text", Data("https://example.com/?utm_source=x".utf8)), ("public.rtf", Data("x".utf8)))
+        let c = LinkCleaner.clean(copied)
+        check(c?.original == "https://example.com/?utm_source=x" && c?.items[0].data["public.utf8-plain-text"] == Data("https://example.com/".utf8)
+              && c?.items[0].types == ["public.utf8-plain-text"], "pasteboard link rewritten, rich copy dropped")
+        check(LinkCleaner.clean(text("read https://example.com/?utm_source=x")) == nil, "link inside text untouched")
+    }
 
     static func classifierTests(_ check: (Bool, String) -> Void) {
         func kind(_ items: [PayloadItem]) -> ItemKind { Classifier.analyze(items).kind }

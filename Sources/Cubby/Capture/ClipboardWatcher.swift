@@ -45,15 +45,26 @@ final class ClipboardWatcher {
 
         // ponytail: read on main (NSPasteboard isn't documented thread-safe); move off-main if huge images stutter.
         var total = 0
-        let snapshot: [PayloadItem] = items.map { it in
+        var snapshot: [PayloadItem] = items.map { it in
             var data: [String: Data] = [:]
             var order: [String] = []
             for t in it.types { if let d = it.data(forType: t) { data[t.rawValue] = d; order.append(t.rawValue); total += d.count } }
             return PayloadItem(types: order, data: data)
         }
         guard total <= Self.maxBytes else { return log("skipped copy: \(total) bytes is over the limit") }
+        // Link Cleaner: swap the clipboard for the clean link right away, so a plain ⌘V anywhere pastes it clean.
+        var cleaned: (original: String, removed: Int)?
+        if Settings.cleanLinks, let c = LinkCleaner.clean(snapshot) {
+            snapshot = c.items
+            cleaned = (c.original, c.removed)
+            pb.clearContents()
+            pb.writeObjects(snapshot.map(\.pasteboardItem))
+            ignoreCurrent()
+        }
         let date = Date()
-        queue.async { [store] in Self.ingest(snapshot, bundleID: app?.bundleIdentifier, appName: app?.localizedName, date: date, store: store) }
+        queue.async { [store] in
+            Self.ingest(snapshot, bundleID: app?.bundleIdentifier, appName: app?.localizedName, date: date, store: store, cleanedFrom: cleaned)
+        }
     }
 
     static func skipReason(types: Set<String>, bundleID: String?, confidential: Bool = true, transient: Bool = true,
@@ -67,11 +78,13 @@ final class ClipboardWatcher {
 
     /// Classify → dedupe → insert → fetch late previews. Runs on the capture queue.
     @discardableResult
-    static func ingest(_ items: [PayloadItem], bundleID: String?, appName: String?, date: Date, store: Store, latePreviews: Bool = true) -> Int64? {
+    static func ingest(_ items: [PayloadItem], bundleID: String?, appName: String?, date: Date, store: Store, latePreviews: Bool = true,
+                       cleanedFrom: (original: String, removed: Int)? = nil) -> Int64? {
         guard items.contains(where: { !$0.data.isEmpty }) else { return nil }
         let r = Classifier.analyze(items)
         if let id = store.bump(checksum: r.checksum, at: date) { return id }
-        let (preview, search) = Classifier.preview(r, items)
+        var (preview, search) = Classifier.preview(r, items)
+        if let c = cleanedFrom, r.kind == .link { preview.originalURL = c.original; preview.trackersRemoved = c.removed }
         let id = store.insert(.init(kind: r.kind, checksum: r.checksum, preview: preview, searchText: search, payload: items,
                                     appBundleID: bundleID, appName: appName), at: date)
         guard let id, latePreviews else { return id }

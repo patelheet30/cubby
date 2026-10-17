@@ -49,6 +49,11 @@ final class PanelController: NSObject, NSWindowDelegate {
             return true
         }
         drawer.onPaste = { [weak self] clips, plain in self?.paste(clips, plain: plain) }
+        drawer.onPasteText = { [weak self] text in
+            guard let self else { return }
+            PasteboardWriter.write(text: text)
+            self.deliver(from: self.drawer.screenRect)
+        }
     }
 
     func toggle() { isShown ? hide() : show() }
@@ -92,6 +97,11 @@ final class PanelController: NSObject, NSWindowDelegate {
     func paste(_ clips: [Clip], plain: Bool) {
         let rect = drawer.screenRect
         guard PasteboardWriter.write(clips, plain: plain || Settings.alwaysPlain) else { return drawer.toast("Couldn't read that clip") }
+        deliver(from: rect)
+    }
+
+    /// The pasteboard is ready: close the drawer, then ⌘V into the app you were in (or say it's copied).
+    private func deliver(from rect: NSRect) {
         let direct = Settings.directPaste && PasteboardWriter.canDirectPaste
         hide {
             if direct { DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { PasteboardWriter.typeCommandV() } }

@@ -8,6 +8,7 @@ final class DrawerView: NSView {
     let search = SearchField()
     let list = ClipList()
     var onPaste: ([Clip], Bool) -> Void = { _, _ in }
+    var onPasteText: (String) -> Void = { _ in }
     var onPreview: () -> Void = {}
     var onSelectionChange: () -> Void = {}
     var onNewText: () -> Void = {}
@@ -336,6 +337,9 @@ final class DrawerView: NSView {
         m.addItem(ActionItem("Paste", key: "\r") { [weak self] in self?.onPaste(clips, false) })
         m.addItem(ActionItem("Paste as Plain Text", key: "\r", mods: .shift) { [weak self] in self?.onPaste(clips, true) })
         m.addItem(ActionItem("Copy", key: "c", mods: .command) { [weak self] in self?.copy(clips) })
+        if clips.count == 1, let original = clips[0].preview.originalURL {
+            m.addItem(ActionItem("Paste Original Link") { [weak self] in self?.onPasteText(original) })
+        }
         m.addItem(.separator())
         let pin = NSMenuItem(title: "Pin to", action: nil, keyEquivalent: "")
         pin.submenu = pinMenu(clips)

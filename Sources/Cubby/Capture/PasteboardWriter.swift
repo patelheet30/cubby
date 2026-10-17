@@ -24,13 +24,7 @@ enum PasteboardWriter {
             item.setString(texts.compactMap { $0 }.joined(separator: "\n"), forType: .string)
             out = [item]
         } else {
-            for items in payloads.compactMap({ $0 }) {
-                for it in items {
-                    let p = NSPasteboardItem()
-                    for t in it.types { if let d = it.data[t] { p.setData(d, forType: .init(t)) } }
-                    out.append(p)
-                }
-            }
+            out = payloads.compactMap { $0 }.flatMap { $0.map(\.pasteboardItem) }
         }
         guard !out.isEmpty else { return false }
         pb.clearContents()
@@ -38,6 +32,13 @@ enum PasteboardWriter {
         if pb == .general { ClipboardWatcher.shared.ignoreCurrent() }
         store.touch(clips.map(\.id))
         return true
+    }
+
+    /// Plain text straight onto the pasteboard (e.g. a link's original, uncleaned form).
+    static func write(text: String, pasteboard pb: NSPasteboard = .general) {
+        pb.clearContents()
+        pb.setString(text, forType: .string)
+        if pb == .general { ClipboardWatcher.shared.ignoreCurrent() }
     }
 
     static var canDirectPaste: Bool { AXIsProcessTrusted() }

@@ -52,6 +52,14 @@ struct PayloadItem: Codable, Equatable {
     var data: [String: Data]
 }
 
+extension PayloadItem {
+    var pasteboardItem: NSPasteboardItem {
+        let p = NSPasteboardItem()
+        for t in types { if let d = data[t] { p.setData(d, forType: .init(t)) } }
+        return p
+    }
+}
+
 /// The small, card-sized summary stored with each row. Which fields are set depends on the kind.
 struct Preview: Codable, Equatable {
     var text: String? = nil          // text: first 500 characters
@@ -63,6 +71,8 @@ struct Preview: Codable, Equatable {
     var h: Int? = nil
     var url: String? = nil           // link
     var title: String? = nil         // link page title
+    var originalURL: String? = nil   // link before the Link Cleaner removed tracking
+    var trackersRemoved: Int? = nil
     var hex: String? = nil           // color
     var paths: [String]? = nil       // files
     var totalSize: Int? = nil

@@ -11,7 +11,7 @@ enum Settings {
     static func register() {
         d.register(defaults: [
             "historyDays": 30, "soundEffects": false, "directPaste": true, "alwaysPlain": false,
-            "ignoreConfidential": true, "ignoreTransient": true, "linkPreviews": true, "showDuringSharing": false,
+            "ignoreConfidential": true, "cleanLinks": true, "ignoreTransient": true, "linkPreviews": true, "showDuringSharing": false,
             "ignoredApps": "", "hotkeyCode": kVK_ANSI_V, "hotkeyMods": cmdKey | shiftKey, "hotkeyLabel": "⇧⌘V", "pausedUntil": 0.0,
         ])
     }
@@ -23,6 +23,7 @@ enum Settings {
     static var ignoreConfidential: Bool { d.bool(forKey: "ignoreConfidential") }
     static var ignoreTransient: Bool { d.bool(forKey: "ignoreTransient") }
     static var linkPreviews: Bool { d.bool(forKey: "linkPreviews") }
+    static var cleanLinks: Bool { d.bool(forKey: "cleanLinks") }
     static var sharing: NSWindow.SharingType { d.bool(forKey: "showDuringSharing") ? .readOnly : .none }
     static var ignoredApps: [String] {
         get { d.string(forKey: "ignoredApps")!.split(separator: "\n").map(String.init) }
@@ -160,6 +161,7 @@ struct PrivacyTab: View {
     @AppStorage("ignoreConfidential") private var confidential = true
     @AppStorage("ignoreTransient") private var transient = true
     @AppStorage("linkPreviews") private var previews = true
+    @AppStorage("cleanLinks") private var cleanLinks = true
     @AppStorage("showDuringSharing") private var sharing = false
     @AppStorage("ignoredApps") private var ignored = ""
 
@@ -169,6 +171,7 @@ struct PrivacyTab: View {
         Form {
             Toggle("Ignore passwords and other confidential copies", isOn: $confidential)
             Toggle("Ignore temporary copies made by apps", isOn: $transient)
+            Toggle("Remove tracking from links (utm_, fbclid, …)", isOn: $cleanLinks)
             Toggle("Fetch titles and images for links", isOn: $previews)
             Toggle("Show the drawer during screen sharing", isOn: $sharing)
             Section("Never save copies from") {
