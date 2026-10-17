@@ -48,12 +48,17 @@ if [[ "${1:-}" == release ]]; then
   else
     AUTH=(--keychain-profile "${NOTARY_PROFILE:-notary}")
   fi
-  echo "Submitting $DMG to Apple's notary service (usually 1–5 minutes)…"
-  RESULT=$(xcrun notarytool submit "$DMG" "${AUTH[@]}" --wait --output-format json)
-  STATUS=$(print -r -- "$RESULT" | plutil -extract status raw -)
+  # Upload, then poll: a long --wait dies on any network blip, and first submissions can take an hour.
+  ID=$(xcrun notarytool submit "$DMG" "${AUTH[@]}" --output-format json | plutil -extract id raw -)
+  echo "Submitted $DMG to Apple's notary service ($ID); waiting…"
+  STATUS=""
+  while [[ -z "$STATUS" || "$STATUS" == "In Progress" ]]; do
+    sleep 30
+    STATUS=$(xcrun notarytool info "$ID" "${AUTH[@]}" --output-format json 2>/dev/null | plutil -extract status raw - 2>/dev/null || true)
+  done
   if [[ "$STATUS" != Accepted ]]; then
     echo "Notarization $STATUS:" >&2
-    xcrun notarytool log "$(print -r -- "$RESULT" | plutil -extract id raw -)" "${AUTH[@]}" >&2 || true
+    xcrun notarytool log "$ID" "${AUTH[@]}" >&2 || true
     exit 1
   fi
   xcrun stapler staple "$DMG"
