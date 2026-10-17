@@ -86,11 +86,8 @@ final class Store: @unchecked Sendable {
         migrate()
     }
 
-    private func migrate() {
-        var version: Int64 = 0
-        db.run("PRAGMA user_version") { version = $0.int(0) }
-        guard version == 0 else { return }
-        db.exec("""
+    /// Schema version 1 (the first release). Kept verbatim so upgrades can be tested from it.
+    static let schemaV1 = """
         BEGIN;
         CREATE TABLE app (id INTEGER PRIMARY KEY, bundle_id TEXT UNIQUE NOT NULL, name TEXT NOT NULL);
         CREATE TABLE pinboard (
@@ -111,10 +108,28 @@ final class Store: @unchecked Sendable {
         CREATE VIRTUAL TABLE item_fts USING fts5(body, title, meta, tokenize = 'unicode61 remove_diacritics 2');
         PRAGMA user_version = 1;
         COMMIT;
-        """)
-        let now = Date().timeIntervalSince1970
-        db.run("INSERT INTO pinboard (name, color, position, created_at) VALUES ('Pinned', ?, 0, ?), ('Useful Links', ?, 1, ?)",
-               [Self.swatches[0], now, Self.swatches[1], now])
+        """
+
+    private func migrate() {
+        var version: Int64 = 0
+        db.run("PRAGMA user_version") { version = $0.int(0) }
+        if version < 1 {
+            db.exec(Self.schemaV1)
+            let now = Date().timeIntervalSince1970
+            db.run("INSERT INTO pinboard (name, color, position, created_at) VALUES ('Pinned', ?, 0, ?), ('Useful Links', ?, 1, ?)",
+                   [Self.swatches[0], now, Self.swatches[1], now])
+        }
+        if version < 2 { // v0.2: secrets that expire, pinboards that follow apps
+            db.exec("""
+            BEGIN;
+            ALTER TABLE item ADD COLUMN expires_at REAL;
+            ALTER TABLE item ADD COLUMN sensitive INTEGER NOT NULL DEFAULT 0;
+            CREATE TABLE pinboard_app (pinboard_id INTEGER NOT NULL REFERENCES pinboard(id) ON DELETE CASCADE,
+                                       bundle_id TEXT NOT NULL UNIQUE, PRIMARY KEY (pinboard_id, bundle_id));
+            PRAGMA user_version = 2;
+            COMMIT;
+            """)
+        }
     }
 
     private func locked<T>(_ body: () -> T) -> T { lock.lock(); defer { lock.unlock() }; return body() }
@@ -128,7 +143,8 @@ final class Store: @unchecked Sendable {
     // MARK: reading
 
     private static let select = """
-        SELECT i.id, i.kind, i.title, i.preview, i.timestamp, i.created_at, a.name, a.bundle_id, p.id, p.name, p.color
+        SELECT i.id, i.kind, i.title, i.preview, i.timestamp, i.created_at, a.name, a.bundle_id, p.id, p.name, p.color,
+               i.sensitive, i.expires_at
         FROM item i LEFT JOIN app a ON a.id = i.app_id
         LEFT JOIN pinboard p ON p.id = i.pinboard_id AND p.deleted_at IS NULL
         WHERE i.deleted_at IS NULL
@@ -143,7 +159,8 @@ final class Store: @unchecked Sendable {
                 out.append(Clip(id: r.int(0), kind: ItemKind(rawValue: Int(r.int(1))) ?? .unknown,
                                 date: Date(timeIntervalSince1970: r.double(4) ?? r.double(5) ?? 0),
                                 appName: r.text(6) ?? "Unknown", appBundleID: r.text(7),
-                                customTitle: r.text(2), preview: preview, pinboard: board))
+                                customTitle: r.text(2), preview: preview, pinboard: board,
+                                sensitive: r.int(11) != 0, expiresAt: r.double(12).map(Date.init(timeIntervalSince1970:))))
             }
         }
         return out

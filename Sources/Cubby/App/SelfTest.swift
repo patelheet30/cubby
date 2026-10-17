@@ -34,6 +34,7 @@ enum SelfTest {
         check(DrawerPanel.isPrintable("a") && DrawerPanel.isPrintable("é") && DrawerPanel.isPrintable(" "), "printable")
         check(!DrawerPanel.isPrintable("\u{F702}") && !DrawerPanel.isPrintable("\r") && !DrawerPanel.isPrintable(""), "non-printable")
 
+        migrationTests(check)
         storeTests(check)
         classifierTests(check)
 
@@ -46,6 +47,28 @@ enum SelfTest {
     }
 
     static func text(_ s: String) -> [PayloadItem] { item(("public.utf8-plain-text", Data(s.utf8))) }
+
+    /// A database written by v0.1 (schema 1) opens in this build with its clips intact and the v2 columns added.
+    static func migrationTests(_ check: (Bool, String) -> Void) {
+        let dir = FileManager.default.temporaryDirectory.appending(path: "cubby-migrate-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        try? FileManager.default.createDirectory(at: dir.appending(path: "blobs"), withIntermediateDirectories: true)
+        do {
+            let old = DB(path: dir.appending(path: "store.sqlite").path)
+            old.exec(Store.schemaV1)
+            old.run("INSERT INTO pinboard (name, color, position, created_at) VALUES ('Work', 0, 0, 0)")
+            old.run("INSERT INTO item (uuid, kind, checksum, preview, payload_bytes, timestamp, created_at) VALUES ('u1', 5, 'c1', ?, 0, 1, 1)",
+                    [try! PropertyListEncoder.binary.encode(Preview(text: "from v1"))])
+        }
+        let store = Store(directory: dir)
+        check(store.history().map { $0.preview.text } == ["from v1"] && store.pinboards().map(\.name) == ["Work"], "v1 → v2 keeps data")
+        var columns: [String] = [], version: Int64 = 0
+        let raw = DB(path: dir.appending(path: "store.sqlite").path)
+        raw.run("PRAGMA table_info(item)") { columns.append($0.text(1) ?? "") }
+        raw.run("PRAGMA user_version") { version = $0.int(0) }
+        check(columns.contains("expires_at") && columns.contains("sensitive") && version == 2, "v2 columns added")
+        check(store.history().first?.sensitive == false && store.history().first?.expiresAt == nil, "old clips aren't secrets")
+    }
 
     static func storeTests(_ check: (Bool, String) -> Void) {
         let dir = FileManager.default.temporaryDirectory.appending(path: "cubby-selftest-\(UUID().uuidString)")

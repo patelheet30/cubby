@@ -79,6 +79,8 @@ struct Clip {
     var customTitle: String? = nil   // user rename
     var preview = Preview()
     var pinboard: Pinboard? = nil
+    var sensitive = false            // looks like a secret: blurred in the drawer
+    var expiresAt: Date? = nil       // deleted after this, unless pinned
 
     var title: String? { customTitle ?? (kind == .link ? preview.title : nil) }
 
