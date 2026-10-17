@@ -58,8 +58,11 @@ You only need the Xcode Command Line Tools; full Xcode isn't required.
 ```bash
 ./build.sh        # builds build/Cubby.app
 ./build.sh run    # builds and relaunches it
+./build.sh release  # Developer ID-signed, notarized and stapled build/Cubby-<version>.dmg
 build/Cubby.app/Contents/MacOS/Cubby --self-test
 ```
+
+`build.sh release` needs a "Developer ID Application" certificate in your keychain and a notarytool profile saved once with `xcrun notarytool store-credentials cubby-notary --apple-id <apple id> --team-id <team id>`.
 
 `build.sh` signs with your first "Apple Development" identity when you have one. A stable signature keeps the Accessibility permission across rebuilds; without one, it signs ad hoc.
 
