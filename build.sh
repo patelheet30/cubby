@@ -30,7 +30,8 @@ if [[ "${1:-}" == run ]]; then
 fi
 
 # ./build.sh release → build/Cubby-<version>.dmg, notarized and stapled.
-# One-time setup: xcrun notarytool store-credentials cubby-notary --apple-id <apple id> --team-id <team id>
+# Locally it uses the notarytool keychain profile "notary" (xcrun notarytool store-credentials notary --key … --key-id … --issuer …);
+# in CI it uses the App Store Connect API key from NOTARY_KEY_PATH / NOTARY_KEY_ID / NOTARY_ISSUER_ID.
 if [[ "${1:-}" == release ]]; then
   VERSION=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' Resources/Info.plist)
   DMG="build/Cubby-$VERSION.dmg"
@@ -38,10 +39,23 @@ if [[ "${1:-}" == release ]]; then
   mkdir -p build/dmg
   cp -R "$APP" build/dmg/
   ln -s /Applications build/dmg/Applications
-  hdiutil create -volname Cubby -srcfolder build/dmg -ov -format UDZO "$DMG" >/dev/null
+  hdiutil create -volname Cubby -srcfolder build/dmg -ov -format UDZO "$DMG" >/dev/null 2>&1
   rm -rf build/dmg
   codesign --force --timestamp --sign "$IDENTITY" "$DMG"
-  xcrun notarytool submit "$DMG" --keychain-profile "${CUBBY_NOTARY_PROFILE:-cubby-notary}" --wait
+
+  if [[ -n "${NOTARY_KEY_ID:-}" ]]; then
+    AUTH=(--key "$NOTARY_KEY_PATH" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID")
+  else
+    AUTH=(--keychain-profile "${NOTARY_PROFILE:-notary}")
+  fi
+  echo "Submitting $DMG to Apple's notary service (usually 1–5 minutes)…"
+  RESULT=$(xcrun notarytool submit "$DMG" "${AUTH[@]}" --wait --output-format json)
+  STATUS=$(print -r -- "$RESULT" | plutil -extract status raw -)
+  if [[ "$STATUS" != Accepted ]]; then
+    echo "Notarization $STATUS:" >&2
+    xcrun notarytool log "$(print -r -- "$RESULT" | plutil -extract id raw -)" "${AUTH[@]}" >&2 || true
+    exit 1
+  fi
   xcrun stapler staple "$DMG"
   xcrun stapler staple "$APP"
   spctl --assess --type open --context context:primary-signature -v "$DMG"

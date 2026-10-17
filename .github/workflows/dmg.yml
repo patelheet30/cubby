@@ -12,30 +12,58 @@ permissions:
 jobs:
   dmg:
     runs-on: macos-26
+    env:
+      RELEASE: ${{ startsWith(github.ref, 'refs/tags/v') }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build Cubby.app
-        run: ./build.sh # no signing identity on the runner, so it signs ad hoc
+      # Tags only: put the Developer ID certificate in a throwaway keychain and the notary API key on disk.
+      - name: Import signing certificate and notary key
+        if: env.RELEASE == 'true'
+        env:
+          DEVELOPER_ID_P12: ${{ secrets.DEVELOPER_ID_P12 }}
+          DEVELOPER_ID_P12_PASSWORD: ${{ secrets.DEVELOPER_ID_P12_PASSWORD }}
+          NOTARY_KEY_P8: ${{ secrets.NOTARY_KEY_P8 }}
+        run: |
+          KC="$RUNNER_TEMP/signing.keychain-db"
+          KC_PW=$(openssl rand -base64 24)
+          security create-keychain -p "$KC_PW" "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p "$KC_PW" "$KC"
+          echo "$DEVELOPER_ID_P12" | base64 --decode > "$RUNNER_TEMP/developer-id.p12"
+          security import "$RUNNER_TEMP/developer-id.p12" -k "$KC" -P "$DEVELOPER_ID_P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KC_PW" "$KC" >/dev/null
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/developer-id.p12"
+          echo "$NOTARY_KEY_P8" | base64 --decode > "$RUNNER_TEMP/notary.p8"
+
+      - name: Build Cubby.app (notarized DMG on tags)
+        env:
+          NOTARY_KEY_PATH: ${{ runner.temp }}/notary.p8
+          NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+          NOTARY_ISSUER_ID: ${{ secrets.NOTARY_ISSUER_ID }}
+        run: |
+          if [[ "$RELEASE" == true ]]; then ./build.sh release; else ./build.sh; fi # main: no signing identity, so ad hoc
 
       - name: Self-test
         run: build/Cubby.app/Contents/MacOS/Cubby --self-test
 
-      - name: Package DMG
+      - name: Package DMG (unsigned test build)
+        if: env.RELEASE != 'true'
         run: |
           VERSION=$(/usr/libexec/PlistBuddy -c 'Print CFBundleShortVersionString' Resources/Info.plist)
           mkdir -p dmg
           cp -R build/Cubby.app dmg/
           ln -s /Applications dmg/Applications
-          hdiutil create -volname Cubby -srcfolder dmg -ov -format UDZO "Cubby-$VERSION.dmg"
+          hdiutil create -volname Cubby -srcfolder dmg -ov -format UDZO "build/Cubby-$VERSION.dmg"
 
       - uses: actions/upload-artifact@v4
         with:
           name: Cubby-dmg
-          path: Cubby-*.dmg
+          path: build/Cubby-*.dmg
 
       - name: Attach to GitHub release
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: gh release create "$GITHUB_REF_NAME" Cubby-*.dmg --generate-notes
+        if: env.RELEASE == 'true'
+        run: gh release create "$GITHUB_REF_NAME" build/Cubby-*.dmg --generate-notes
         env:
           GH_TOKEN: ${{ github.token }}

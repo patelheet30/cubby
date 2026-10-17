@@ -41,12 +41,7 @@ Everything stays on your Mac. The only network requests are optional link previe
 
 Download the latest `Cubby-<version>.dmg` from [Releases](../../releases) and drag Cubby to Applications.
 
-Release builds are signed ad hoc and not notarized, so macOS blocks the first launch. Right-click Cubby → **Open**, or run:
-
-```bash
-xattr -dr com.apple.quarantine /Applications/Cubby.app
-```
-
+Releases are signed with a Developer ID and notarized by Apple, so they open like any other app.
 To paste straight into the app you were using, Cubby needs **Accessibility** permission. Without it, Return copies the clip and you press ⌘V yourself.
 
 Requires macOS 14 or later.
@@ -62,11 +57,11 @@ You only need the Xcode Command Line Tools; full Xcode isn't required.
 build/Cubby.app/Contents/MacOS/Cubby --self-test
 ```
 
-`build.sh release` needs a "Developer ID Application" certificate in your keychain and a notarytool profile saved once with `xcrun notarytool store-credentials cubby-notary --apple-id <apple id> --team-id <team id>`.
+`build.sh release` needs a "Developer ID Application" certificate in your keychain and a notarytool profile named `notary`, saved once with `xcrun notarytool store-credentials notary --key AuthKey_<id>.p8 --key-id <id> --issuer <issuer id>`.
 
 `build.sh` signs with your first "Apple Development" identity when you have one. A stable signature keeps the Accessibility permission across rebuilds; without one, it signs ad hoc.
 
-Pushing a `v*` tag runs the **Build DMG** workflow, which attaches `Cubby-<version>.dmg` to a GitHub release.
+Pushing a `v*` tag runs the **Build DMG** workflow, which signs, notarizes and attaches `Cubby-<version>.dmg` to a GitHub release. It needs the repository secrets `DEVELOPER_ID_P12`, `DEVELOPER_ID_P12_PASSWORD`, `NOTARY_KEY_P8`, `NOTARY_KEY_ID` and `NOTARY_ISSUER_ID`. Pushes to `main` build an unsigned test DMG.
 
 ## Project layout
 
