@@ -234,6 +234,12 @@ final class Store: @unchecked Sendable {
         return uuid
     }
 
+    func exists(checksum: String) -> Bool {
+        var found = false
+        locked { db.run("SELECT 1 FROM item WHERE checksum = ? AND deleted_at IS NULL", [checksum]) { _ in found = true } }
+        return found
+    }
+
     // MARK: capture
 
     /// A re-copy of something we already have: move it to the front (and back from trash / pinned-only). Returns its id.

@@ -183,6 +183,13 @@ enum SelfTest {
         check(c?.original == "https://example.com/?utm_source=x" && c?.items[0].data["public.utf8-plain-text"] == Data("https://example.com/".utf8)
               && c?.items[0].types == ["public.utf8-plain-text"], "pasteboard link rewritten, rich copy dropped")
         check(LinkCleaner.clean(text("read https://example.com/?utm_source=x")) == nil, "link inside text untouched")
+
+        // Merge Clips: order kept, blanks dropped, each format.
+        let parts = ["first", "  second line\nwraps ", "", "#FF5500"]
+        check(MergeStyle.lines.join(parts) == "first\nsecond line\nwraps\n#FF5500", "merge lines")
+        check(MergeStyle.bullets.join(parts) == "• first\n• second line\nwraps\n• #FF5500", "merge bullets")
+        check(MergeStyle.commas.join(parts) == "first, second line\nwraps, #FF5500", "merge commas")
+        check(MergeStyle.paragraph.join(parts) == "first second line wraps #FF5500", "merge paragraph")
     }
 
     static func classifierTests(_ check: (Bool, String) -> Void) {

@@ -15,6 +15,30 @@ enum ItemKind: Int, CaseIterable { case unknown, image, color, file, link, text
     }
 }
 
+/// How Merge Clips joins several clips into one.
+enum MergeStyle: CaseIterable {
+    case lines, bullets, commas, paragraph
+
+    var title: String {
+        switch self {
+        case .lines: "Lines"
+        case .bullets: "Bullet List"
+        case .commas: "Comma-Separated"
+        case .paragraph: "One Paragraph"
+        }
+    }
+
+    func join(_ parts: [String]) -> String {
+        let p = parts.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        switch self {
+        case .lines: return p.joined(separator: "\n")
+        case .bullets: return p.map { "• " + $0 }.joined(separator: "\n")
+        case .commas: return p.joined(separator: ", ")
+        case .paragraph: return p.map { $0.replacingOccurrences(of: "\n", with: " ") }.joined(separator: " ")
+        }
+    }
+}
+
 /// Structured search filters (the tray chips, or words like "link" / "safari" typed into search).
 struct Filter: Equatable {
     var kinds: Set<ItemKind> = []

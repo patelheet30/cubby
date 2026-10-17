@@ -126,6 +126,7 @@ final class DrawerView: NSView {
         t.onFind = { [weak self] in self?.filterClicked() }
         t.onPreview = { [weak self] in self?.onPreview() }
         t.onNewText = { [weak self] in self?.onNewText() }
+        t.onMerge = { [weak self] in self?.merge(self?.list.selectedClips ?? [], .lines) }
         list.onSelectionChange = { [weak self] in self?.onSelectionChange() }
         list.menuProvider = { [weak self] clips in self?.clipMenu(clips) ?? NSMenu() }
         list.onCardAction = { [weak self] clip, action, view in self?.cardAction(clip, action, view) }
@@ -297,6 +298,31 @@ final class DrawerView: NSView {
         toast(clips.count == 1 ? "Deleted" : "Deleted \(clips.count) clips") { [weak self] in self?.store.restore(ids) }
     }
 
+    /// Joins the text of several clips (in drawer order) into a new clip at the top of History, selected.
+    private func merge(_ clips: [Clip], _ style: MergeStyle) {
+        guard clips.count > 1 else { return toast("Select two or more clips to merge") }
+        var parts: [String] = []
+        for c in clips {
+            switch c.kind {
+            case .text: if let s = store.payload(c.id).flatMap(Classifier.string) ?? c.text { parts.append(s) }
+            case .link, .color: if let s = c.text { parts.append(s) }
+            default: break
+            }
+        }
+        let skipped = clips.count - parts.count
+        guard parts.count > 1 else { return toast("Only text, links and colours can be merged") }
+        let text = style.join(parts)
+        let items = [PayloadItem(types: ["public.utf8-plain-text"], data: ["public.utf8-plain-text": Data(text.utf8)])]
+        let isNew = !store.exists(checksum: Classifier.analyze(items).checksum)
+        guard let id = ClipboardWatcher.ingest(items, bundleID: Bundle.main.bundleIdentifier, appName: "Cubby", date: Date(),
+                                               store: store, latePreviews: false) else { return }
+        if case .board = current { select(.history) }
+        reload(keepSelection: false)
+        list.select(id: id)
+        let note = "Merged \(parts.count)" + (skipped > 0 ? " · skipped \(skipped)" : "")
+        toast(note, undo: isNew ? { [weak self] in self?.store.delete([id]) } : nil)
+    }
+
     private func pin(_ clips: [Clip], to board: Pinboard) { pin(ids: clips.map(\.id), to: board) }
 
     private func pin(ids: [Int64], to board: Pinboard) {
@@ -339,6 +365,15 @@ final class DrawerView: NSView {
         m.addItem(ActionItem("Copy", key: "c", mods: .command) { [weak self] in self?.copy(clips) })
         if clips.count == 1, let original = clips[0].preview.originalURL {
             m.addItem(ActionItem("Paste Original Link") { [weak self] in self?.onPasteText(original) })
+        }
+        if clips.count > 1 {
+            let merge = NSMenuItem(title: "Merge", action: nil, keyEquivalent: "")
+            merge.submenu = NSMenu()
+            for style in MergeStyle.allCases {
+                let item = ActionItem(style.title, key: style == .lines ? "m" : "") { [weak self] in self?.merge(clips, style) }
+                merge.submenu?.addItem(item)
+            }
+            m.addItem(merge)
         }
         m.addItem(.separator())
         let pin = NSMenuItem(title: "Pin to", action: nil, keyEquivalent: "")

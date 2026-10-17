@@ -88,6 +88,12 @@ final class ClipList: NSScrollView, NSTableViewDataSource, NSTableViewDelegate, 
         }
     }
 
+    func select(id: Int64) {
+        guard let r = row(of: id) else { return }
+        table.selectRowIndexes([r], byExtendingSelection: false)
+        table.scrollRowToVisible(r)
+    }
+
     func row(of id: Int64) -> Int? { rows.firstIndex { if case .clip(let c, _) = $0 { c.id == id } else { false } } }
 
     private func clip(at row: Int) -> Clip? {
@@ -221,6 +227,7 @@ final class ClipTable: NSTableView {
     var onFind: () -> Void = {}
     var onPreview: () -> Void = {}
     var onNewText: () -> Void = {}
+    var onMerge: () -> Void = {}
 
     private static let digitKeys: [UInt16] = [18, 19, 20, 21, 23, 22, 26, 28, 25] // 1…9
 
@@ -236,6 +243,7 @@ final class ClipTable: NSTableView {
         case (45, .command) where shift: return onNewPinboard()
         case (3, .command): return onFind()
         case (49, []): return onPreview()
+        case (46, .command): return onMerge()
         case (45, .command) where !shift: return onNewText()
         default: break
         }

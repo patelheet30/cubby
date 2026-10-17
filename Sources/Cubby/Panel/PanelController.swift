@@ -44,6 +44,7 @@ final class PanelController: NSObject, NSWindowDelegate {
             case ("f", false): t.onFind()
             case ("n", false): t.onNewText()
             case ("n", true): t.onNewPinboard()
+            case ("m", false): t.onMerge()
             default: return false
             }
             return true
