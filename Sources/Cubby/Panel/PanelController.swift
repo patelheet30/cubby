@@ -69,7 +69,8 @@ final class PanelController: NSObject, NSWindowDelegate {
 
         panel.orderFrontRegardless()
         panel.makeKey()
-        drawer.resetForShow()
+        let front = NSWorkspace.shared.frontmostApplication // still the app you were in: the panel never activates us
+        drawer.resetForShow(frontApp: front?.bundleIdentifier == Bundle.main.bundleIdentifier ? nil : front?.bundleIdentifier)
 
         let layer = drawer.layer!
         layer.removeAllAnimations()

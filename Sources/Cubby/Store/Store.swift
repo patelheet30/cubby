@@ -214,8 +214,12 @@ final class Store: @unchecked Sendable {
     func pinboards() -> [Pinboard] {
         var out: [Pinboard] = []
         locked {
-            db.run("SELECT id, name, color FROM pinboard WHERE deleted_at IS NULL ORDER BY position") {
-                out.append(Pinboard(id: $0.int(0), name: $0.text(1) ?? "", rgb: Int($0.int(2))))
+            db.run("""
+                SELECT p.id, p.name, p.color, (SELECT group_concat(bundle_id, char(10)) FROM pinboard_app WHERE pinboard_id = p.id)
+                FROM pinboard p WHERE p.deleted_at IS NULL ORDER BY p.position
+                """) {
+                out.append(Pinboard(id: $0.int(0), name: $0.text(1) ?? "", rgb: Int($0.int(2)),
+                                    apps: ($0.text(3) ?? "").split(separator: "\n").map(String.init).sorted()))
             }
         }
         return out
@@ -407,6 +411,29 @@ final class Store: @unchecked Sendable {
         var ids = boards.map(\.id)
         ids.swapAt(i, i + step)
         each(ids, "UPDATE pinboard SET position = ? WHERE id = ?") { [ids.firstIndex(of: $0)!, $0] }
+    }
+
+    /// The drawer opens on this board when `bundleID` is the app you were in. An app follows at most one board.
+    func bindApp(_ bundleID: String, to board: Int64) {
+        locked {
+            db.run("INSERT INTO pinboard_app (pinboard_id, bundle_id) VALUES (?, ?) ON CONFLICT(bundle_id) DO UPDATE SET pinboard_id = excluded.pinboard_id",
+                   [board, bundleID])
+            notify()
+        }
+    }
+
+    func unbindApp(_ bundleID: String) {
+        locked { db.run("DELETE FROM pinboard_app WHERE bundle_id = ?", [bundleID]); notify() }
+    }
+
+    /// The (live) board bound to an app, if any.
+    func board(forApp bundleID: String) -> Int64? {
+        var id: Int64?
+        locked {
+            db.run("SELECT a.pinboard_id FROM pinboard_app a JOIN pinboard p ON p.id = a.pinboard_id WHERE a.bundle_id = ? AND p.deleted_at IS NULL",
+                   [bundleID]) { id = $0.int(0) }
+        }
+        return id
     }
 
     /// Deletes the board and its pinned-only clips; clips still in History just lose the pin (once purged). Undo with `restorePinboard`.

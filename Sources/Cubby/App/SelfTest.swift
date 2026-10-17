@@ -146,6 +146,23 @@ enum SelfTest {
         check(store.search("", filter: Filter(date: .yesterday)).isEmpty && !store.search("", filter: Filter(date: .today)).isEmpty, "filter date")
         check(store.topApps().first?.name == "Notes", "top apps")
 
+        // Pinboards that follow apps: bind, rebind moves, unbind, a deleted board stops matching (and its bindings go on purge).
+        let shell = store.createPinboard(name: "Shell"), replies = store.createPinboard(name: "Replies")
+        store.bindApp("com.apple.Terminal", to: shell.id)
+        store.bindApp("com.tinyspeck.slackmacgap", to: replies.id)
+        check(store.board(forApp: "com.apple.Terminal") == shell.id && store.pinboards().first { $0.id == shell.id }?.apps == ["com.apple.Terminal"], "bind app")
+        store.bindApp("com.apple.Terminal", to: replies.id)
+        check(store.board(forApp: "com.apple.Terminal") == replies.id && store.pinboards().first { $0.id == shell.id }?.apps == [], "rebind moves the app")
+        store.unbindApp("com.apple.Terminal")
+        check(store.board(forApp: "com.apple.Terminal") == nil && store.board(forApp: "com.safari") == nil, "unbind")
+        store.deletePinboard(replies.id)
+        check(store.board(forApp: "com.tinyspeck.slackmacgap") == nil, "deleted board stops matching")
+        store.restorePinboard(replies.id)
+        check(store.board(forApp: "com.tinyspeck.slackmacgap") == replies.id, "undo restores binding")
+        store.deletePinboard(replies.id); store.purge()
+        store.bindApp("com.tinyspeck.slackmacgap", to: shell.id)
+        check(store.board(forApp: "com.tinyspeck.slackmacgap") == shell.id, "purged board's binding is gone (app free to rebind)")
+
         // Rename is searchable; erase keeps pins.
         store.rename(d, to: "  Address  ")
         check(store.history().first { $0.id == d }?.title == "Address" && store.search("addr").map(\.id) == [d], "rename + search")

@@ -169,7 +169,12 @@ final class DrawerView: NSView {
         select(ids[(i + (back ? ids.count - 1 : 1)) % ids.count])
     }
 
-    func resetForShow() {
+    /// The app the drawer was opened over (for pinboards that follow apps).
+    private(set) var frontApp: String?
+
+    func resetForShow(frontApp: String? = nil) {
+        self.frontApp = frontApp
+        current = frontApp.flatMap(store.board(forApp:)).map { .board($0) } ?? .history
         endEditing(commit: true)
         search.field.stringValue = ""
         query = ""
@@ -195,6 +200,9 @@ final class DrawerView: NSView {
         let name = boardID.flatMap { id in boards.first { $0.id == id }?.name } ?? "History"
         titleLabel.stringValue = name
         countLabel.stringValue = "\(shown.count) clip\(shown.count == 1 ? "" : "s")"
+        if let id = boardID, let app = frontApp, boards.first(where: { $0.id == id })?.apps.contains(app) == true {
+            countLabel.stringValue += " · for \(AppInfo.name(app))"
+        }
         list.show(shown, grouped: boardID == nil, keepSelection: keepSelection, reorderable: boardID != nil && query.isEmpty && filter.isEmpty)
         empty.isHidden = !shown.isEmpty
         if !query.isEmpty || !filter.isEmpty {
@@ -411,6 +419,7 @@ final class DrawerView: NSView {
             color.submenu?.addItem(item)
         }
         m.addItem(color)
+        m.addItem(followMenu(b))
         m.addItem(ActionItem("Move Up") { [weak self] in self?.store.movePinboard(b.id, by: -1); self?.reload(keepSelection: true) })
         m.addItem(ActionItem("Move Down") { [weak self] in self?.store.movePinboard(b.id, by: 1); self?.reload(keepSelection: true) })
         m.addItem(.separator())
@@ -421,6 +430,43 @@ final class DrawerView: NSView {
             self.toast("Deleted “\(b.name)”") { [weak self] in self?.store.restorePinboard(b.id) }
         })
         return m
+    }
+
+    /// "Show for App ▸": the app you were just in, running apps, and the apps already bound (✓, click to remove).
+    private func followMenu(_ b: Pinboard) -> NSMenuItem {
+        let item = NSMenuItem(title: "Show for App", action: nil, keyEquivalent: "")
+        let m = NSMenu()
+        func toggle(_ id: String) -> ActionItem {
+            let bound = b.apps.contains(id)
+            let i = ActionItem(AppInfo.name(id)) { [weak self] in
+                guard let self else { return }
+                if bound { self.store.unbindApp(id) } else { self.store.bindApp(id, to: b.id) }
+                self.reload(keepSelection: true)
+                self.toast(bound ? "\(b.name) no longer follows \(AppInfo.name(id))" : "\(b.name) opens for \(AppInfo.name(id))")
+            }
+            i.image = AppInfo.icon(id, size: 16)
+            i.state = bound ? .on : .off
+            return i
+        }
+        if let front = frontApp { m.addItem(toggle(front)) }
+        let running = NSWorkspace.shared.runningApplications
+            .filter { $0.activationPolicy == .regular && $0.bundleIdentifier != nil && $0.bundleIdentifier != Bundle.main.bundleIdentifier
+                && $0.bundleIdentifier != frontApp && !b.apps.contains($0.bundleIdentifier!) }
+            .compactMap(\.bundleIdentifier)
+            .sorted { AppInfo.name($0).localizedCaseInsensitiveCompare(AppInfo.name($1)) == .orderedAscending }
+        if !running.isEmpty {
+            let r = NSMenuItem(title: "Running Apps", action: nil, keyEquivalent: "")
+            r.submenu = NSMenu()
+            running.forEach { r.submenu?.addItem(toggle($0)) }
+            m.addItem(r)
+        }
+        let others = b.apps.filter { $0 != frontApp }
+        if !others.isEmpty {
+            m.addItem(.separator())
+            others.forEach { m.addItem(toggle($0)) }
+        }
+        item.submenu = m
+        return item
     }
 
     @objc private func moreClicked() {
@@ -623,6 +669,17 @@ final class RailButton: NSView {
             tile.centerXAnchor.constraint(equalTo: box.centerXAnchor), tile.centerYAnchor.constraint(equalTo: box.centerYAnchor),
         ])
         center(box)
+        if let app = board.apps.first, let icon = AppInfo.icon(app, size: 14) { // follows an app: small badge on the tile
+            let badge = NSImageView(image: icon)
+            badge.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(badge)
+            NSLayoutConstraint.activate([
+                badge.widthAnchor.constraint(equalToConstant: 14), badge.heightAnchor.constraint(equalToConstant: 14),
+                badge.trailingAnchor.constraint(equalTo: box.trailingAnchor, constant: 5),
+                badge.bottomAnchor.constraint(equalTo: box.bottomAnchor, constant: 5),
+            ])
+            toolTip = "\(board.name) · opens for " + board.apps.map(AppInfo.name).joined(separator: ", ")
+        }
     }
 
     required init?(coder: NSCoder) { fatalError() }

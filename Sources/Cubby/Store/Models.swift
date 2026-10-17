@@ -67,6 +67,7 @@ struct Pinboard: Equatable {
     var id: Int64
     var name: String
     var rgb: Int
+    var apps: [String] = []          // bundle IDs this board opens for
     var color: NSColor { NSColor(rgb: rgb) }
 }
 
@@ -163,6 +164,18 @@ struct Clip {
         let icon = NSWorkspace.shared.icon(forFile: url.path)
         Self.icons[id] = icon
         return icon
+    }
+}
+
+/// Display name and icon for an app's bundle ID.
+enum AppInfo {
+    static func url(_ id: String) -> URL? { NSWorkspace.shared.urlForApplication(withBundleIdentifier: id) }
+    static func name(_ id: String) -> String { url(id).map { FileManager.default.displayName(atPath: $0.path).replacingOccurrences(of: ".app", with: "") } ?? id }
+    static func icon(_ id: String, size: CGFloat) -> NSImage? {
+        guard let u = url(id) else { return nil }
+        let i = NSWorkspace.shared.icon(forFile: u.path)
+        i.size = NSSize(width: size, height: size)
+        return i
     }
 }
 
