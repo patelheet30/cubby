@@ -37,6 +37,7 @@ final class ClipList: NSScrollView, NSTableViewDataSource, NSTableViewDelegate, 
         table.allowsMultipleSelection = true
         table.style = .plain
         table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
+        table.onFlags = { [weak self] in self?.refreshStates() }
         table.dataSource = self
         table.delegate = self
         documentView = table
@@ -179,6 +180,7 @@ final class ClipList: NSScrollView, NSTableViewDataSource, NSTableViewDelegate, 
             v.card.onAction = { [weak self] action, view in self?.onCardAction(c, action, view) }
             v.card.isSelected = tableView.isRowSelected(row)
             v.card.isHovered = row == hoverRow
+            v.card.isRevealed = revealed(row)
             return v
         }
     }
@@ -202,7 +204,12 @@ final class ClipList: NSScrollView, NSTableViewDataSource, NSTableViewDelegate, 
             guard let cell = table.view(atColumn: 0, row: r, makeIfNecessary: false) as? CardCell else { continue }
             cell.card.isSelected = table.isRowSelected(r)
             cell.card.isHovered = r == hoverRow
+            cell.card.isRevealed = revealed(r)
         }
+    }
+
+    private func revealed(_ row: Int) -> Bool {
+        row == hoverRow || (table.isRowSelected(row) && NSEvent.modifierFlags.contains(.option))
     }
 
     override func mouseMoved(with event: NSEvent) {
@@ -230,6 +237,9 @@ final class ClipTable: NSTableView {
     var onMerge: () -> Void = {}
 
     private static let digitKeys: [UInt16] = [18, 19, 20, 21, 23, 22, 26, 28, 25] // 1…9
+
+    var onFlags: () -> Void = {}
+    override func flagsChanged(with event: NSEvent) { super.flagsChanged(with: event); onFlags() } // ⌥ reveals a selected secret
 
     override func keyDown(with event: NSEvent) {
         let mods = event.modifierFlags.intersection([.command, .control, .option])
@@ -301,6 +311,34 @@ final class CardView: NSView {
 
     var isSelected = false { didSet { if isSelected != oldValue { needsDisplay = true } } }
     var isHovered = false { didSet { if isHovered != oldValue { needsDisplay = true; actions.isHidden = !isHovered; quick.isHidden = isHovered || quickKey == nil } } }
+    /// Secrets are blurred until revealed (hover, or ⌥ held while selected).
+    var isRevealed = false { didSet { if isRevealed != oldValue { applyBlur() } } }
+
+    private func applyBlur() {
+        let hide = clip?.sensitive == true && !isRevealed
+        for v in [body, title] {
+            v.wantsLayer = true
+            v.layerUsesCoreImageFilters = true
+            v.layer?.filters = hide ? [CIFilter(name: "CIGaussianBlur", parameters: [kCIInputRadiusKey: 6])!] : nil
+        }
+    }
+
+    /// "Secret · deletes in 9 min", with a lock.
+    private static func secretNote(_ c: Clip) -> NSAttributedString {
+        let when: String
+        if c.pinboard != nil { when = "kept (pinned)" } else if let e = c.expiresAt {
+            let m = max(1, Int(ceil(e.timeIntervalSinceNow / 60)))
+            when = "deletes in \(m) min"
+        } else { when = "blurred" }
+        let s = NSMutableAttributedString()
+        let lock = NSTextAttachment()
+        lock.image = NSImage(systemSymbolName: "lock.fill", accessibilityDescription: "Secret")?
+            .withSymbolConfiguration(.init(pointSize: 9, weight: .semibold))
+        s.append(NSAttributedString(attachment: lock))
+        s.append(NSAttributedString(string: " Secret · \(when)"))
+        s.addAttributes([.font: NSFont.systemFont(ofSize: 11), .foregroundColor: NSColor.systemOrange], range: NSRange(location: 0, length: s.length))
+        return s
+    }
 
     private var clip: Clip?
     private var quickKey: Int?
@@ -378,6 +416,8 @@ final class CardView: NSView {
         body.font = c.kind == .link ? .systemFont(ofSize: 12) : Self.textFont
         body.maximumNumberOfLines = c.kind == .link ? 1 : Self.maxTextLines
         metric.stringValue = c.kind == .link || c.kind == .color ? "" : c.metric
+        if c.sensitive { metric.attributedStringValue = Self.secretNote(c) }
+        applyBlur()
         needsLayout = true
         needsDisplay = true
     }

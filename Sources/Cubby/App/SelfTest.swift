@@ -38,6 +38,7 @@ enum SelfTest {
         storeTests(check)
         classifierTests(check)
         linkCleanerTests(check)
+        secretTests(check)
 
         print(failures == 0 ? "self-test: all \(checks) passed" : "self-test: \(failures) failed")
         exit(failures == 0 ? 0 : 1)
@@ -172,6 +173,58 @@ enum SelfTest {
     }
 
     private static func uuid(_ store: Store, _ id: Int64) -> String { store.uuid(of: id) ?? "" }
+
+    static func secretTests(_ check: (Bool, String) -> Void) {
+        typealias K = SecretDetector.Kind
+        // Fake keys are assembled at runtime so nothing key-shaped sits in the source (and trips secret scanners).
+        func fake(_ a: String, _ b: String) -> String { a + b }
+        let stripe = fake("sk_", "live_" + String(repeating: "x7Q", count: 8)), github = fake("ghp_", String(repeating: "aB3", count: 12))
+        let yes: [(String, K)] = [
+            (fake("sk-ant-", "api03-Abc123Def456Ghi789Jkl012Mno345"), .apiKey),
+            ("OPENAI_API_KEY=" + fake("sk-", "proj-AbCdEfGhIjKlMnOpQrStUvWx"), .apiKey),
+            (stripe, .apiKey),
+            (github, .apiKey),
+            (fake("xox", "b-123456789012-abcdefghijkl"), .apiKey),
+            (fake("AKIA", "IOSFODNN7EXAMPLE"), .apiKey),
+            (fake("AIza", "SyA1234567890abcdefghijklmnopqrstuv"), .apiKey),
+            (fake("-----BEGIN OPENSSH PRIV", "ATE KEY-----\nAAAA\n-----END"), .privateKey),
+            (fake("eyJhbGciOiJIUzI1NiJ9.", "eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U"), .token),
+            ("4242 4242 4242 4242", .card),
+            ("378282246310005", .card),
+            ("482913", .code),
+            ("Your verification code is 4821. Don't share it.", .code),
+            ("q7Zx_2pLm9Vt4Rw8Ks1Nf6Hb3Yd5Jc0Ga", .token),
+        ]
+        for (text, kind) in yes { check(SecretDetector.check(text) == kind, "secret: \(text.prefix(24)) → \(kind.rawValue)") }
+        let no = ["£249,000", "550e8400-e29b-41d4-a716-446655440000", "a94a8fe5ccb19ba61c4c0873d391e987982fbbd3",
+                  "pneumonoultramicroscopicsilicovolcanoconiosis", "2024", "4242 4242 4242 4241", "Call me at 7pm",
+                  "https://example.com/path?token=abcdefghijklmnopqrstuvwxyz0123456789", "Ship the drawer tonight"]
+        for text in no { check(SecretDetector.check(text) == nil, "not a secret: \(text.prefix(24))") }
+
+        // Expiry: an unpinned secret goes when its time is up; a pinned one stays; ordinary text never expires.
+        let dir = FileManager.default.temporaryDirectory.appending(path: "cubby-secrets-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = Store(directory: dir)
+        let past = Date(timeIntervalSinceNow: -700)
+        func ingest(_ s: String, _ date: Date) -> Int64 {
+            ClipboardWatcher.ingest(text(s), bundleID: nil, appName: nil, date: date, store: store, latePreviews: false,
+                                    detectSecrets: true, secretLifetime: 600)!
+        }
+        let key = ingest(stripe, past), kept = ingest(github, past)
+        let plain = ingest("just a note", past)
+        let k = store.history().first { $0.id == key }
+        check(k?.sensitive == true && k?.expiresAt.map { abs($0.timeIntervalSince(past) - 600) < 1 } == true, "secret marked with expiry")
+        check(store.search("sk_live").isEmpty && store.search("secret").count == 2, "secrets searchable only as 'secret'")
+        store.pin([kept], to: store.pinboards()[0].id)
+        check(store.board(store.pinboards()[0].id).first?.expiresAt == nil, "pinning clears the countdown")
+        let gone = store.expireSecrets()
+        let ids = store.history().map(\.id)
+        check(gone == [stripe] && !ids.contains(key) && ids.contains(kept) && ids.contains(plain), "expiry deletes only unpinned secrets")
+        store.unpin([kept], secretLifetime: 600)
+        check((store.history().first { $0.id == kept }?.expiresAt?.timeIntervalSinceNow ?? 0) > 590, "unpinning restarts the countdown")
+        let again = ingest(github, Date())
+        check(again == kept && (store.history().first { $0.id == kept }?.expiresAt?.timeIntervalSinceNow ?? 0) > 590, "re-copy restarts the countdown")
+    }
 
     static func linkCleanerTests(_ check: (Bool, String) -> Void) {
         let cases: [(String, String?, Int)] = [ // input, cleaned (nil = untouched), trackers removed

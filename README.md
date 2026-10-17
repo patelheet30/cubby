@@ -16,6 +16,10 @@ Cubby lives in your menu bar. Copy anything and it's saved. Press ⇧⌘V and a 
 - **Pinboards**: keep clips forever in named, coloured boards in the drawer's rail. Pin from a card's menu or drag a card onto a board. Rename, recolour, reorder, or drag to sort clips inside a board.
 - **Preview**: press Space for a large preview beside the drawer. It follows the selection as you move. Text is scrollable, images show at full size, links open as a live page, files use Quick Look.
 - **Search**: start typing anywhere in the drawer. Words like "link", "image" or an app name become filter chips. The filter tray (⌘F) narrows by type, app and date.
+- **Link Cleaner**: copied links lose their tracking (`utm_*`, `fbclid`, YouTube's `si`, Amazon's `ref=` and more) before you paste them anywhere. The card says how many trackers went; **Paste Original Link** is one right-click away.
+- **Merge Clips**: select several cards and press ⌘M to combine them into one clip: lines, a bullet list, comma-separated or one paragraph.
+- **Pinboards that follow apps**: tie a board to an app and the drawer opens on it there, e.g. your shell snippets in Terminal and your canned replies in Slack.
+- **Self-destructing secrets**: API keys, private keys, tokens, card numbers and one-time codes are blurred in the drawer (hover or hold ⌥ to see them) and deleted after 10 minutes unless you pin them, clipboard included.
 - **Undo**: deleting clips, unpinning and deleting a pinboard can all be undone with ⌘Z.
 - **Privacy**: passwords and other concealed or temporary copies are skipped. You can ignore whole apps, pause capture, and hide the drawer during screen sharing.
 - **Settings**: open at login, paste into the app or to the clipboard only, always paste as plain text, history length (a day to forever), and a recordable shortcut.
@@ -31,6 +35,7 @@ Everything stays on your Mac. The only network requests are optional link previe
 | Quick paste the first nine | ⌘1 – ⌘9 |
 | Preview | Space |
 | Copy | ⌘C |
+| Merge selected clips | ⌘M |
 | Delete / Undo | ⌫ / ⌘Z |
 | Next / previous list | ⇥ / ⇧⇥ or ⌘→ / ⌘← |
 | Filters | ⌘F |

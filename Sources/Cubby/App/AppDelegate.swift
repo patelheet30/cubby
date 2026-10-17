@@ -5,6 +5,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private let menu = NSMenu()
     private var housekeepingTimer: Timer?
+    private var secretsTimer: Timer?
+
+    /// Deletes secrets whose time is up, and wipes the clipboard if it still holds one of them.
+    private static func expireSecrets() {
+        let gone = Store.shared.expireSecrets()
+        guard !gone.isEmpty, Settings.clearExpiredSecrets, let current = NSPasteboard.general.string(forType: .string),
+              gone.contains(where: { $0 == current }) else { return }
+        NSPasteboard.general.clearContents()
+        ClipboardWatcher.shared.ignoreCurrent()
+        log("cleared an expired secret from the clipboard")
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         Settings.register()
@@ -28,6 +39,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         housekeepingTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in self?.housekeeping() }
+        secretsTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { _ in Self.expireSecrets() }
+        Self.expireSecrets()
 
         if CommandLine.arguments.contains("--light") { NSApp.appearance = NSAppearance(named: .aqua) } // screenshot testing
         if CommandLine.arguments.contains("--show") {

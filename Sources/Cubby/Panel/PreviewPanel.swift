@@ -13,6 +13,7 @@ final class PreviewPanel {
     private let footerLabel = NSTextField(labelWithString: "")
     private let footerButton = FirstMouseButton(title: "", target: nil, action: nil)
     private var body: NSView?
+    private let reveal = FirstMouseButton(title: "Reveal Secret", target: nil, action: nil)
     private var footerAction: (() -> Void)?
     private(set) var clipID: Int64?
     var store = Store.shared
@@ -39,6 +40,11 @@ final class PreviewPanel {
         footerButton.controlSize = .small
         footerButton.target = self
         footerButton.action = #selector(footerTapped)
+        reveal.bezelStyle = .push
+        reveal.image = NSImage(systemSymbolName: "eye", accessibilityDescription: nil)
+        reveal.imagePosition = .imageLeading
+        reveal.target = self
+        reveal.action = #selector(revealTapped)
         for v in [titleLabel, footerLabel, footerButton] { bg.addSubview(v) }
         panel.contentView = bg
     }
@@ -143,12 +149,19 @@ final class PreviewPanel {
             contentSize = CGSize(width: 380, height: 200)
             v = l
         }
+        reveal.removeFromSuperview()
+        if c.sensitive { // blurred until asked
+            v.wantsLayer = true
+            v.layerUsesCoreImageFilters = true
+            v.layer?.filters = [CIFilter(name: "CIGaussianBlur", parameters: [kCIInputRadiusKey: 9])!]
+        }
         footerLabel.stringValue = footer
         footerButton.title = button?.0 ?? ""
         footerButton.isHidden = button == nil
         footerAction = button?.1
         bg.addSubview(v)
         body = v
+        if c.sensitive { bg.addSubview(reveal) }
     }
 
     private func place(card: NSRect, drawer: NSRect) {
@@ -165,6 +178,9 @@ final class PreviewPanel {
         let cw = w - a
         titleLabel.frame = NSRect(x: pad + 2, y: h - header + 8, width: cw - 2 * pad - 4, height: 18)
         body?.frame = NSRect(x: pad, y: footer, width: contentSize.width, height: contentSize.height)
+        let rs = reveal.fittingSize
+        reveal.frame = NSRect(x: pad + (contentSize.width - rs.width) / 2, y: footer + (contentSize.height - rs.height) / 2,
+                              width: rs.width, height: rs.height)
         let bw = footerButton.isHidden ? 0 : footerButton.fittingSize.width
         footerButton.frame = NSRect(x: cw - pad - bw, y: 6, width: bw, height: 22)
         footerLabel.frame = NSRect(x: pad + 2, y: 9, width: cw - 2 * pad - bw - 10, height: 16)
@@ -189,6 +205,11 @@ final class PreviewPanel {
     }
 
     @objc private func footerTapped() { footerAction?() }
+
+    @objc private func revealTapped() {
+        body?.layer?.filters = nil
+        reveal.removeFromSuperview()
+    }
 }
 
 /// Our windows never make the app active, so buttons in them must work on the first click.

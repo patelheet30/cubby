@@ -11,7 +11,7 @@ enum Settings {
     static func register() {
         d.register(defaults: [
             "historyDays": 30, "soundEffects": false, "directPaste": true, "alwaysPlain": false,
-            "ignoreConfidential": true, "cleanLinks": true, "ignoreTransient": true, "linkPreviews": true, "showDuringSharing": false,
+            "ignoreConfidential": true, "cleanLinks": true, "detectSecrets": true, "secretMinutes": 10, "clearExpiredSecrets": true, "ignoreTransient": true, "linkPreviews": true, "showDuringSharing": false,
             "ignoredApps": "", "hotkeyCode": kVK_ANSI_V, "hotkeyMods": cmdKey | shiftKey, "hotkeyLabel": "⇧⌘V", "pausedUntil": 0.0,
         ])
     }
@@ -24,6 +24,10 @@ enum Settings {
     static var ignoreTransient: Bool { d.bool(forKey: "ignoreTransient") }
     static var linkPreviews: Bool { d.bool(forKey: "linkPreviews") }
     static var cleanLinks: Bool { d.bool(forKey: "cleanLinks") }
+    static var detectSecrets: Bool { d.bool(forKey: "detectSecrets") }
+    /// nil = secrets are blurred but never deleted.
+    static var secretLifetime: TimeInterval? { let m = d.integer(forKey: "secretMinutes"); return m > 0 ? Double(m) * 60 : nil }
+    static var clearExpiredSecrets: Bool { d.bool(forKey: "clearExpiredSecrets") }
     static var sharing: NSWindow.SharingType { d.bool(forKey: "showDuringSharing") ? .readOnly : .none }
     static var ignoredApps: [String] {
         get { d.string(forKey: "ignoredApps")!.split(separator: "\n").map(String.init) }
@@ -162,6 +166,9 @@ struct PrivacyTab: View {
     @AppStorage("ignoreTransient") private var transient = true
     @AppStorage("linkPreviews") private var previews = true
     @AppStorage("cleanLinks") private var cleanLinks = true
+    @AppStorage("detectSecrets") private var detectSecrets = true
+    @AppStorage("secretMinutes") private var secretMinutes = 10
+    @AppStorage("clearExpiredSecrets") private var clearExpired = true
     @AppStorage("showDuringSharing") private var sharing = false
     @AppStorage("ignoredApps") private var ignored = ""
 
@@ -171,6 +178,14 @@ struct PrivacyTab: View {
         Form {
             Toggle("Ignore passwords and other confidential copies", isOn: $confidential)
             Toggle("Ignore temporary copies made by apps", isOn: $transient)
+            Toggle("Blur secrets (API keys, card numbers, codes) and delete them", isOn: $detectSecrets)
+            if detectSecrets {
+                Picker("Delete secrets after", selection: $secretMinutes) {
+                    ForEach([1, 5, 10, 30], id: \.self) { Text("\($0) min").tag($0) }
+                    Text("Never").tag(0)
+                }
+                Toggle("Also clear them from the clipboard", isOn: $clearExpired).disabled(secretMinutes == 0)
+            }
             Toggle("Remove tracking from links (utm_, fbclid, …)", isOn: $cleanLinks)
             Toggle("Fetch titles and images for links", isOn: $previews)
             Toggle("Show the drawer during screen sharing", isOn: $sharing)
@@ -223,7 +238,7 @@ struct ShortcutsTab: View {
     }
 
     static let keys = [("Paste", "↩"), ("Paste as plain text", "⇧↩"), ("Quick paste", "⌘1 – ⌘9"), ("Preview", "Space"),
-                       ("Copy", "⌘C"), ("Delete / Undo", "⌫ / ⌘Z"), ("Next / previous list", "⇥ / ⇧⇥ or ⌘→ / ⌘←"),
+                       ("Copy", "⌘C"), ("Delete / Undo", "⌫ / ⌘Z"), ("Merge selected clips", "⌘M"), ("Next / previous list", "⇥ / ⇧⇥ or ⌘→ / ⌘←"),
                        ("New pinboard", "⇧⌘N"), ("New text clip", "⌘N"), ("Search", "just type, or ⌘F")]
 
     private func start() {

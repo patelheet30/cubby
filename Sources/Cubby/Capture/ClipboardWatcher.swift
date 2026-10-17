@@ -79,14 +79,17 @@ final class ClipboardWatcher {
     /// Classify → dedupe → insert → fetch late previews. Runs on the capture queue.
     @discardableResult
     static func ingest(_ items: [PayloadItem], bundleID: String?, appName: String?, date: Date, store: Store, latePreviews: Bool = true,
-                       cleanedFrom: (original: String, removed: Int)? = nil) -> Int64? {
+                       cleanedFrom: (original: String, removed: Int)? = nil,
+                       detectSecrets: Bool = Settings.detectSecrets, secretLifetime: TimeInterval? = Settings.secretLifetime) -> Int64? {
         guard items.contains(where: { !$0.data.isEmpty }) else { return nil }
         let r = Classifier.analyze(items)
-        if let id = store.bump(checksum: r.checksum, at: date) { return id }
+        if let id = store.bump(checksum: r.checksum, at: date, secretLifetime: secretLifetime) { return id }
+        let secret = detectSecrets && r.kind == .text ? r.string.flatMap(SecretDetector.check) : nil
         var (preview, search) = Classifier.preview(r, items)
         if let c = cleanedFrom, r.kind == .link { preview.originalURL = c.original; preview.trackersRemoved = c.removed }
         let id = store.insert(.init(kind: r.kind, checksum: r.checksum, preview: preview, searchText: search, payload: items,
-                                    appBundleID: bundleID, appName: appName), at: date)
+                                    appBundleID: bundleID, appName: appName, sensitive: secret != nil,
+                                    expiresAt: secret == nil ? nil : secretLifetime.map { date.addingTimeInterval($0) }), at: date)
         guard let id, latePreviews else { return id }
         log("captured \(r.kind.label.lowercased()) from \(appName ?? "?")")
         if r.kind == .link, Settings.linkPreviews, let s = preview.url, let url = URL(string: s) { DispatchQueue.main.async { fetchLink(id, url, store) } }

@@ -247,12 +247,17 @@ final class Store: @unchecked Sendable {
     // MARK: capture
 
     /// A re-copy of something we already have: move it to the front (and back from trash / pinned-only). Returns its id.
-    func bump(checksum: String, at date: Date = Date()) -> Int64? {
+    /// Copying a secret again restarts its countdown (`secretLifetime` nil = never expires).
+    func bump(checksum: String, at date: Date = Date(), secretLifetime: TimeInterval? = nil) -> Int64? {
         locked {
             var id: Int64?
             db.run("SELECT id FROM item WHERE checksum = ?", [checksum]) { id = $0.int(0) }
             guard let id else { return nil }
-            db.run("UPDATE item SET timestamp = ?, deleted_at = NULL WHERE id = ?", [date.timeIntervalSince1970, id])
+            db.run("""
+                UPDATE item SET timestamp = ?, deleted_at = NULL,
+                  expires_at = CASE WHEN sensitive = 1 AND pinboard_id IS NULL THEN ? ELSE expires_at END
+                WHERE id = ?
+                """, [date.timeIntervalSince1970, secretLifetime.map { date.timeIntervalSince1970 + $0 }, id])
             notify()
             return id
         }
@@ -266,12 +271,14 @@ final class Store: @unchecked Sendable {
         var payload: [PayloadItem]
         var appBundleID: String?
         var appName: String?
+        var sensitive = false
+        var expiresAt: Date? = nil
     }
 
     /// Inserts a new clip (or bumps it if the checksum already exists). Returns its id.
     @discardableResult
     func insert(_ n: NewItem, at date: Date = Date()) -> Int64? {
-        if let id = bump(checksum: n.checksum, at: date) { return id }
+        if let id = bump(checksum: n.checksum, at: date, secretLifetime: n.expiresAt.map { $0.timeIntervalSince(date) }) { return id }
         guard let plist = try? PropertyListEncoder.binary.encode(n.payload),
               let blob = try? (plist as NSData).compressed(using: .lzfse) as Data,
               let preview = try? PropertyListEncoder.binary.encode(n.preview) else { return nil }
@@ -287,13 +294,16 @@ final class Store: @unchecked Sendable {
             }
             let t = date.timeIntervalSince1970
             let ok = db.run("""
-                INSERT INTO item (uuid, kind, checksum, preview, payload_bytes, timestamp, created_at, app_id)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, [uuid, n.kind.rawValue, n.checksum, preview, blob.count, t, t, appID]) == 1
+                INSERT INTO item (uuid, kind, checksum, preview, payload_bytes, timestamp, created_at, app_id, sensitive, expires_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, [uuid, n.kind.rawValue, n.checksum, preview, blob.count, t, t, appID, n.sensitive ? 1 : 0,
+                      n.expiresAt?.timeIntervalSince1970]) == 1
             guard ok else { db.exec("ROLLBACK"); try? FileManager.default.removeItem(at: blobURL(uuid)); return nil }
             let id = db.lastID
+            // A secret is findable as "secret", never by its value.
             db.run("INSERT INTO item_fts (rowid, body, title, meta) VALUES (?, ?, '', ?)",
-                   [id, String(n.searchText.prefix(100_000)), "\(n.appName ?? "") \(n.kind.label) \(n.preview.title ?? "")"])
+                   [id, n.sensitive ? "" : String(n.searchText.prefix(100_000)),
+                    "\(n.appName ?? "") \(n.kind.label) \(n.preview.title ?? "")\(n.sensitive ? " secret" : "")"])
             db.exec("COMMIT")
             notify()
             return id
@@ -360,7 +370,8 @@ final class Store: @unchecked Sendable {
             db.exec("BEGIN IMMEDIATE")
             for id in ids.reversed() {
                 top += 1
-                db.run("UPDATE item SET pinboard_id = ?, pin_order = ? WHERE id = ? AND pinboard_id IS NOT ?", [board, top, id, board])
+                db.run("UPDATE item SET pinboard_id = ?, pin_order = ?, expires_at = NULL WHERE id = ? AND pinboard_id IS NOT ?",
+                       [board, top, id, board]) // pinning keeps a secret
             }
             db.exec("COMMIT")
             notify()
@@ -368,8 +379,31 @@ final class Store: @unchecked Sendable {
     }
 
     /// Unpin never deletes: a pinned-only clip goes back into History.
-    func unpin(_ ids: [Int64]) {
-        each(ids, "UPDATE item SET pinboard_id = NULL, timestamp = COALESCE(timestamp, ?) WHERE id = ?") { [Date().timeIntervalSince1970, $0] }
+    /// Unpinning a secret starts its countdown again.
+    func unpin(_ ids: [Int64], secretLifetime: TimeInterval? = Settings.secretLifetime) {
+        let now = Date().timeIntervalSince1970
+        each(ids, """
+            UPDATE item SET pinboard_id = NULL, timestamp = COALESCE(timestamp, ?),
+              expires_at = CASE WHEN sensitive = 1 THEN ? ELSE expires_at END
+            WHERE id = ?
+            """) { [now, secretLifetime.map { now + $0 }, $0] }
+    }
+
+    /// Permanently deletes unpinned secrets whose time is up. Returns their plain text, so the caller can clear
+    /// the system clipboard if it still holds one.
+    @discardableResult
+    func expireSecrets(now: Date = Date()) -> [String] {
+        locked {
+            var ids: [Int64] = []
+            db.run("SELECT id FROM item WHERE sensitive = 1 AND pinboard_id IS NULL AND expires_at < ?", [now.timeIntervalSince1970]) {
+                ids.append($0.int(0))
+            }
+            guard !ids.isEmpty else { return [] }
+            let texts = ids.compactMap { payload($0).flatMap(Classifier.string) }
+            hardDelete("sensitive = 1 AND pinboard_id IS NULL AND expires_at < ?", [now.timeIntervalSince1970])
+            notify()
+            return texts
+        }
     }
 
     /// `ids` top to bottom, as the pinboard should now show them.
