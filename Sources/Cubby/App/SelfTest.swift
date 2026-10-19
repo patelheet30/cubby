@@ -222,6 +222,19 @@ enum SelfTest {
         check(gone == [stripe] && !ids.contains(key) && ids.contains(kept) && ids.contains(plain), "expiry deletes only unpinned secrets")
         store.unpin([kept], secretLifetime: 600)
         check((store.history().first { $0.id == kept }?.expiresAt?.timeIntervalSinceNow ?? 0) > 590, "unpinning restarts the countdown")
+        // Manual marking: a missed secret can be marked (blurred, unsearchable, expiring); a false alarm un-marked (searchable again, kept).
+        let missed = ingest("my locker combo 31-07-12", Date()), wrong = ingest("482913", Date())
+        check(store.history().first { $0.id == missed }?.sensitive == false, "detector baseline: missed"); check(store.history().first { $0.id == wrong }?.sensitive == true, "detector baseline: code \(store.history().first { $0.id == wrong }.map { "\($0.sensitive)" } ?? "absent")")
+        store.setSecret([missed], true, secretLifetime: 600)
+        let m = store.history().first { $0.id == missed }
+        check(m?.sensitive == true && (m?.expiresAt?.timeIntervalSinceNow ?? 0) > 590 && store.search("locker").isEmpty, "mark as secret")
+        store.setSecret([wrong], false)
+        let w = store.history().first { $0.id == wrong }
+        check(w?.sensitive == false && w?.expiresAt == nil && store.search("482913").map(\.id) == [wrong], "mark as not secret")
+        check(ingest("482913", Date()) == wrong && store.history().first { $0.id == wrong }?.sensitive == false, "re-copy keeps 'not secret'")
+        store.setSecret([missed], false)
+        check(store.search("locker").map(\.id) == [missed], "un-marking restores search")
+
         let again = ingest(github, Date())
         check(again == kept && (store.history().first { $0.id == kept }?.expiresAt?.timeIntervalSinceNow ?? 0) > 590, "re-copy restarts the countdown")
     }
@@ -268,6 +281,7 @@ enum SelfTest {
         check(kind(text("https://example.com/")) == .link, "classify link")
         check(kind(text("see https://example.com/")) == .text, "url inside text is text")
         check(kind(text("ftp://x.org")) == .text, "non-http url is text")
+        check(kind(text("482913")) == .text && kind(text("#482913")) == .color, "bare digits aren't a colour")
         check(kind(text(" #ff5500\n")) == .color && Classifier.analyze(text("ff5500")).string == "#FF5500", "classify color")
         check(kind(item(("public.file-url", Data("file:///Applications/Safari.app/".utf8)))) == .file, "classify file")
         check(kind(item(("com.example.custom", Data([1, 2, 3])))) == .unknown, "classify unknown")

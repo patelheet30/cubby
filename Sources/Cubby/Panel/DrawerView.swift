@@ -331,6 +331,18 @@ final class DrawerView: NSView {
         toast(note, undo: isNew ? { [weak self] in self?.store.delete([id]) } : nil)
     }
 
+    private func markSecret(_ clips: [Clip], _ secret: Bool) {
+        let ids = clips.map(\.id)
+        store.setSecret(ids, secret)
+        reload(keepSelection: true)
+        let n = clips.count == 1 ? "" : " (\(clips.count))"
+        let when = Settings.secretLifetime.map { " · deletes in \(Int($0 / 60)) min" } ?? ""
+        toast(secret ? "Marked as secret\(n)\(when)" : "No longer secret\(n)") { [weak self] in
+            guard let self else { return }
+            for c in clips { self.store.setSecret([c.id], c.sensitive) } // back to how each one was
+        }
+    }
+
     private func pin(_ clips: [Clip], to board: Pinboard) { pin(ids: clips.map(\.id), to: board) }
 
     private func pin(ids: [Int64], to board: Pinboard) {
@@ -388,6 +400,10 @@ final class DrawerView: NSView {
         pin.submenu = pinMenu(clips)
         m.addItem(pin)
         if clips.count == 1 { m.addItem(ActionItem("Rename…") { [weak self] in self?.beginRename(clips[0]) }) }
+        let allSecret = clips.allSatisfy(\.sensitive)
+        let secret = ActionItem(allSecret ? "Mark as Not Secret" : "Mark as Secret") { [weak self] in self?.markSecret(clips, !allSecret) }
+        secret.image = NSImage(systemSymbolName: allSecret ? "lock.open" : "lock", accessibilityDescription: nil)
+        m.addItem(secret)
         m.addItem(.separator())
         m.addItem(ActionItem("Delete", key: "\u{8}", mods: []) { [weak self] in self?.delete(clips) })
         return m

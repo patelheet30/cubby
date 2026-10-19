@@ -316,7 +316,7 @@ final class CardView: NSView {
 
     private func applyBlur() {
         let hide = clip?.sensitive == true && !isRevealed
-        for v in [body, title] {
+        for v in [body, title, media] as [NSView] {
             v.wantsLayer = true
             v.layerUsesCoreImageFilters = true
             v.layer?.filters = hide ? [CIFilter(name: "CIGaussianBlur", parameters: [kCIInputRadiusKey: 6])!] : nil

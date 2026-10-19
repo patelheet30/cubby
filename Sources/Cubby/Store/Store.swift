@@ -389,6 +389,28 @@ final class Store: @unchecked Sendable {
             """) { [now, secretLifetime.map { now + $0 }, $0] }
     }
 
+    /// Marks clips as secret (blurred, unsearchable by value, deleted after `secretLifetime` unless pinned), or clears that.
+    /// A re-copy keeps your choice: dedupe bumps the existing row instead of re-running detection.
+    func setSecret(_ ids: [Int64], _ secret: Bool, secretLifetime: TimeInterval? = Settings.secretLifetime) {
+        let now = Date().timeIntervalSince1970
+        locked {
+            db.exec("BEGIN IMMEDIATE")
+            for id in ids {
+                db.run("""
+                    UPDATE item SET sensitive = ?,
+                      expires_at = CASE WHEN ? = 1 AND pinboard_id IS NULL THEN ? ELSE NULL END
+                    WHERE id = ?
+                    """, [secret ? 1 : 0, secret ? 1 : 0, secretLifetime.map { now + $0 }, id])
+                // Search: a secret is findable as "secret", never by its value; un-marking restores its text.
+                let body = secret ? "" : String((payload(id).flatMap(Classifier.string) ?? "").prefix(100_000))
+                db.run("UPDATE item_fts SET body = ?, meta = trim(replace(meta, ' secret', '') || ?) WHERE rowid = ?",
+                       [body, secret ? " secret" : "", id])
+            }
+            db.exec("COMMIT")
+            notify()
+        }
+    }
+
     /// Permanently deletes unpinned secrets whose time is up. Returns their plain text, so the caller can clear
     /// the system clipboard if it still holds one.
     @discardableResult

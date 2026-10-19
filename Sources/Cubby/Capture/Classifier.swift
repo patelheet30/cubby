@@ -30,7 +30,8 @@ enum Classifier {
         if let s = string(items) {
             let t = s.trimmingCharacters(in: .whitespacesAndNewlines)
             let sum = md5(Data(s.utf8))
-            if t.range(of: "^#?[0-9A-Fa-f]{6}$", options: .regularExpression) != nil {
+            // "#482913" or "ff5500" is a colour; a bare "482913" is far more likely a code or a number.
+            if t.range(of: "^#?[0-9A-Fa-f]{6}$", options: .regularExpression) != nil, t.hasPrefix("#") || t.contains(where: \.isLetter) {
                 return Result(kind: .color, checksum: sum, string: t.hasPrefix("#") ? t.uppercased() : "#" + t.uppercased())
             }
             if let url = singleURL(t) ?? items.first?.data["public.url"].flatMap({ String(data: $0, encoding: .utf8) }) {

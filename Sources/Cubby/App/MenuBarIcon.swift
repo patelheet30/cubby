@@ -1,23 +1,29 @@
 import AppKit
 
-/// The Cubby mark on an 18-unit grid: a drawer with two clip cards fanned out of it. Template image, so macOS tints it.
+/// The Cubby mark on an 18-unit grid: a drawer with three clip cards fanned out of it. Template image, so macOS tints it.
 /// `Resources/make-icon.swift` draws the same geometry for the app icon.
 enum MenuBarIcon {
     static func image(paused: Bool = false) -> NSImage {
         let img = NSImage(size: NSSize(width: 18, height: 18), flipped: true) { _ in
             NSColor.black.set()
-            // Two fanned cards (like the app icon), drawn as open outlines whose bottoms disappear into the drawer.
-            for (cx, angle, top) in [(6.0, -13.0, 3.2), (12.0, 13.0, 3.2)] as [(CGFloat, CGFloat, CGFloat)] {
+            // Three fanned cards (like the app icon): the outer two first, then the middle one masking them.
+            for (cx, angle, top, front) in [(4.7, -20.0, 3.8, false), (13.3, 20.0, 3.8, false), (9.0, 0.0, 1.5, true)] as [(CGFloat, CGFloat, CGFloat, Bool)] {
                 let t = NSAffineTransform()
                 t.translateX(by: cx, yBy: 9.2)
                 t.rotate(byDegrees: angle)
                 let card = NSBezierPath()
-                card.move(to: NSPoint(x: -2.3, y: 0))
-                card.appendArc(from: NSPoint(x: -2.3, y: top - 9.2), to: NSPoint(x: 2.3, y: top - 9.2), radius: 1.3)
-                card.appendArc(from: NSPoint(x: 2.3, y: top - 9.2), to: NSPoint(x: 2.3, y: 0), radius: 1.3)
-                card.line(to: NSPoint(x: 2.3, y: 0))
+                card.move(to: NSPoint(x: -2.1, y: 0))
+                card.appendArc(from: NSPoint(x: -2.1, y: top - 9.2), to: NSPoint(x: 2.1, y: top - 9.2), radius: 1.2)
+                card.appendArc(from: NSPoint(x: 2.1, y: top - 9.2), to: NSPoint(x: 2.1, y: 0), radius: 1.2)
+                card.line(to: NSPoint(x: 2.1, y: 0))
                 card.transform(using: t as AffineTransform)
-                card.lineWidth = 1.4
+                if front { // clear the cards behind it
+                    NSGraphicsContext.current?.compositingOperation = .clear
+                    card.fill()
+                    NSGraphicsContext.current?.compositingOperation = .sourceOver
+                    NSColor.black.set()
+                }
+                card.lineWidth = 1.3
                 card.lineJoinStyle = .round
                 card.stroke()
             }
